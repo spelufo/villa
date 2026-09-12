@@ -38,6 +38,7 @@ _PREPARED_INPUT_FIELDS = {
     "track_exclusion_radius",
     "dense_spacing_mode",
     "loss_weight_fiber_directions",
+    "loss_weight_front_attachment",
     "output_first_winding",
     "output_winding_margin",
     "output_step_size",
@@ -62,6 +63,7 @@ _SCALE_WITH_Z_FIELDS = {
     "sample_count_tracks_per_step",
     "sample_count_dense_normal_points",
     "sample_count_fiber_direction_points",
+    "sample_count_front_points",
     "sample_count_regularisation_points",
     "sample_count_dense_spacing_pairs",
     "sample_count_dense_spacing_density_extra_pairs",
@@ -104,6 +106,8 @@ _INPUT_TOGGLE_DESCRIPTIONS = {
         "Load tracks and allow track sampling and losses.",
     "input_use_fibers":
         "Load fiber annotations into the point-collection supervision pools.",
+    "input_use_front_points":
+        "Allow unlabeled front observations to attach to fitted windings.",
     "input_use_fiber_directions":
         "Load packed fiber-direction samples and allow their orientation loss.",
     "input_use_pcl_absolute":
@@ -361,6 +365,7 @@ class Config:
         self.sample_count_tracks_per_step = 48000
         self.sample_count_track_points_per_step = 96
         self.sample_count_dense_normal_points = 60000
+        self.sample_count_front_points = 20000
         self.sample_count_fiber_direction_points = 60000
         self.sample_count_regularisation_points = 4500
         self.sample_count_dense_spacing_pairs = 12000
@@ -390,6 +395,7 @@ class Config:
         self.input_use_unverified_patches = True
         self.input_use_tracks = False
         self.input_use_fibers = True
+        self.input_use_front_points = False
         self.input_use_fiber_directions = False
         self.input_use_pcl_absolute = True
         self.input_use_pcl_relative = True
@@ -506,6 +512,8 @@ class Config:
         self.loss_weight_track_dt = 10.0
         self.loss_weight_sym_dirichlet = 10.0
         self.loss_weight_dense_normals = 100.0
+        self.loss_weight_front_attachment = 0.0
+        self.front_attachment_huber_delta = 1.0
         self.loss_weight_fiber_directions = 0.0
         self.loss_weight_dense_spacing = 12.0
         self.loss_weight_umbilicus = 1.25
@@ -598,6 +606,8 @@ class Config:
                     or type(item) not in (int, float)
                     for item_key, item in value.items()):
                 raise ValueError(f"Invalid dictionary value for {key}")
+        if not values["front_attachment_huber_delta"] > 0:
+            raise ValueError("front_attachment_huber_delta must be positive")
         if values["model_gap_expander_capacity_windings"] < 3:
             raise ValueError(
                 "model_gap_expander_capacity_windings must be at least 3")

@@ -550,3 +550,33 @@ loss. The fitter then loads the conventional `fiber_directions.npz` artifact
 and samples `sample_count_fiber_direction_points` observations per step.
 Positions and directions constrain only local fitted-sheet orientation; they
 do not attach a sample to a particular winding.
+
+## Unlabeled front observations from Eisodos
+
+The optional `front_points` input is a Zarr group, conventionally
+`<dataset>/front_points.zarr`, overridable through `paths.front_points` in
+`spiral-scroll.json`. Eisodos's `scripts/export_spiral_inputs.jl` produces it
+alongside normal stores compatible with the existing Lasagna normal input.
+The group contains Float32 `position_zyx` of shape `(N,3)`, in global zero-based
+working scan voxels. Attributes identify `artifact_type="spiral_front_points"`,
+`format_version=1`, `coordinate_order="zyx"`, `coordinate_units="working_voxels"`,
+`working_voxel_size_um`, `origin_mm_xyz`, and full `shape_zyx`.
+
+Set `input_use_front_points=true` and `loss_weight_front_attachment>0` to enable
+attachment. Both default off; `sample_count_front_points` defaults to 20,000
+and follows the existing z-range/distributed batch scaling.
+`front_attachment_huber_delta` defaults to one working voxel and must be positive.
+The input is loaded and z-filtered once, then kept on each fitting device.
+Checkpoint fingerprints detect changed front geometry while allowing relocation
+of an identical artifact. Checkpoints predating this input remain usable.
+
+Each observation's continuous spiral phase selects its two bracketing integer
+windings, clamped to the fitted domain. Candidate points at the same transformed
+angle/z are mapped back to the scan and the smaller distance receives a smooth-L1
+penalty. Correspondences are detached, like patch DT; gradients run through the
+inverse transform. This radial candidate search approximates surface attachment;
+it is not an exact closest-point search. No patch IDs, component grouping, reverse
+attachment, or observed-front crossing-count assumptions are introduced.
+
+Run CPU-only regression tests with `python tests/test_front_points.py` from this
+directory. Running the fitter itself still requires CUDA.

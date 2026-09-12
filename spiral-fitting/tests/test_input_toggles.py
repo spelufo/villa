@@ -38,6 +38,7 @@ def test_disabled_sources_are_removed_before_any_loader_can_see_them():
         unverified_patches="/inputs/unverified",
         fibers="/inputs/fibers",
         tracks_dbm="/inputs/tracks.dbm",
+        front_points="/inputs/front_points.zarr",
         normal_x="/inputs/nx.zarr",
         normal_y="/inputs/ny.zarr",
         gradient_magnitude="/inputs/grad.zarr",
@@ -58,6 +59,7 @@ def test_disabled_sources_are_removed_before_any_loader_can_see_them():
     assert context.unverified_patches_path is None
     assert context.fibers_path is None
     assert context.tracks_dbm_path is None
+    assert context.front_points_path is None
     assert context.normal_nx_zarr_path is None
     assert context.normal_ny_zarr_path is None
     assert context.grad_mag_zarr_path is None

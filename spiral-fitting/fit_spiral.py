@@ -70,6 +70,7 @@ from lasagna_data import (ensure_fit_sparse_stores, prepare_lasagna_volume,
                           prepare_surf_sdt_volume)
 from checkpoint_io import load_checkpoint_cpu
 from fiber_direction_samples import load_fiber_direction_samples
+from front_points import load_front_points, get_front_attachment_loss
 from influence import make_influence_state, subsample_rows
 from spiral_sampling import load_spiral_sampling
 from tifxyz import load_tifxyz, patch_from_payload
@@ -118,6 +119,7 @@ from losses import (
 from loss_maps import (LossMapRecorder, attach_loss_maps_to_manifest,
                        capture_loss_maps)
 from sdt_losses import (
+    fitted_winding_domain,
     aggregate_pair_counts,
     iter_phase_bundle_losses,
     phase_bundle_component_weights,
@@ -1196,6 +1198,7 @@ class FitContext:
         self.fibers_path = (
             (paths.fibers or None)
             if input_source_enabled(config, 'fibers') else None)
+        self.front_points_path = (paths.front_points or None) if config["input_use_front_points"] else None
         self.fiber_directions_path = (
             (paths.fiber_directions or None)
             if input_source_enabled(config, 'fiber_directions') else None)
@@ -1525,6 +1528,17 @@ class FitContext:
             scroll_zarr = zarr.open(self.scroll_zarr_path, mode='r')
         else:
             scroll_zarr = None
+
+        progress.begin('loading', 'Loading front observations')
+        self.front_points_host = None
+        self.front_points_fingerprint = None
+        if (self.config["input_use_front_points"]
+                and self.config["loss_weight_front_attachment"] > 0):
+            if not self.front_points_path:
+                raise ValueError("front attachment requires a front_points input")
+            self.front_points_host, self.front_points_fingerprint = load_front_points(
+                self.front_points_path, self.z_begin, self.z_end)
+            print(f"front points: {len(self.front_points_host):,} in fitting z range")
 
         progress.begin('loading', 'Loading fiber direction samples')
         fiber_direction_samples = None
@@ -2358,6 +2372,9 @@ class FitContext:
         # lasagna and SDT stores
         # ==========================================================================
 
+        self.front_points = (torch.from_numpy(self.front_points_host).to("cuda")
+                             if self.front_points_host is not None else None)
+
         use_normals = self.dense_normals_enabled and (
             self.config['loss_weight_dense_normals'] > 0 or self.phase_mode)
         self._ensure_sparse_volume_stores(
@@ -3018,6 +3035,7 @@ class FitContext:
             'resolved_config': durable_config(self.config),
             'lasagna_scale': self.lasagna_scale,
             'lasagna_group': self.normal_zarr_group,
+            'front_points_fingerprint': getattr(self, 'front_points_fingerprint', None),
             'surf_sdt_fingerprint': (
                 self.sdt_volume['fingerprint'] if self.sdt_volume is not None else None),
             'winding_inference_fingerprint': (
@@ -3147,6 +3165,13 @@ class FitContext:
             reasons.append(
                 f'checkpoint was written against dataset {checkpoint_dataset!r}, '
                 f'not {dataset_root!r}')
+
+        if (self.config.get('input_use_front_points', False)
+                and self.config.get('loss_weight_front_attachment', 0) > 0):
+            previous_fronts = checkpoint.get('front_points_fingerprint')
+            if (previous_fronts is not None
+                    and previous_fronts != self.front_points_fingerprint):
+                reasons.append('checkpoint front-point fingerprint does not match the resolved input')
 
         # --- Lasagna / SDT store identity ---------------------------------
         # The SDT store is an independent input: the Lasagna group/scale checks
@@ -4388,6 +4413,16 @@ class FitContext:
                     for name, value in self.lasagna_volume['store'].last_timings.items()
                 })
 
+        if (self.config['input_use_front_points']
+                and self.config['loss_weight_front_attachment'] > 0
+                and self.front_points is not None):
+            backward_family({'front_attachment': get_front_attachment_loss(
+                self.slice_to_spiral_transform, self.dr_per_winding,
+                self.front_points, self.config['sample_count_front_points'],
+                fitted_winding_domain(self.shell_outer_winding_idx),
+                self.config['front_attachment_huber_delta'],
+            ) * self.config['loss_weight_front_attachment']})
+
         if (self.config['loss_weight_fiber_directions'] > 0
                 and self.fiber_direction_samples is not None):
             fiber_direction_loss = get_fiber_direction_loss(
@@ -4930,6 +4965,7 @@ if __name__ == '__main__':
             'sample_count_tracks_per_step',
             'sample_count_dense_normal_points',
             'sample_count_fiber_direction_points',
+            'sample_count_front_points',
             'sample_count_dense_spacing_pairs',
             'sample_count_dense_spacing_density_extra_pairs',
             'sample_count_winding_model_relative_pairs',
